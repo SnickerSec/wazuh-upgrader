@@ -1,68 +1,75 @@
-# Wazuh Component Upgrade Script
+# Wazuh Component Updater
 
-This Python script is designed to facilitate the upgrade of individual Wazuh components (Indexer, Manager, or Dashboard) on an Ubuntu system. It automates the process of fetching upgrade instructions, stopping relevant services, installing updates, and configuring components.
+This script automates the process of upgrading Wazuh components (Indexer, Manager, and Dashboard) on a system. It intelligently identifies which components are currently running and performs the necessary upgrades accordingly.
 
-## Script Functionality
+## Features
 
-*   **Fetches Upgrade Data:** Extracts necessary URLs from the official Wazuh upgrade guide.
-*   **Executes System Commands:** Runs shell commands with logging and error handling.
-*   **Installs Packages:** Handles package installations using `apt-get`.
-*   **Retrieves Wazuh Indexer Address:** Determines the Wazuh Indexer address (assuming localhost for simplicity).
-*   **Sets Up Wazuh Repository:** Configures the system to access the Wazuh package repository.
-*   **Stops Indexer Services:** Handles Wazuh Indexer service manipulation for updates.
-*   **Stops Filebeat and Wazuh Dashboard:** Manages the stopping of Filebeat and Wazuh Dashboard.
-*   **Upgrades Components:** Provides functions to upgrade individual Wazuh components:
-    *   **Indexer:** Upgrades the Wazuh Indexer component.
-    *   **Manager:** Upgrades the Wazuh Manager component, including Filebeat configurations.
-    *   **Dashboard:** Upgrades the Wazuh Dashboard component.
-*   **Main Function:** Parses command-line arguments and orchestrates the upgrade process.
+* **Automatic Upgrades:**  Upgrades all running Wazuh components without manual intervention.
+* **Intelligent Detection:**  Identifies the running components using `systemctl`.
+* **Wazuh Repository Setup:** Automatically sets up the Wazuh repository for package installation.
+* **Filebeat Configuration:**  Handles Filebeat configuration when upgrading the Wazuh Manager.
+* **Error Handling:**  Includes basic error handling and logging for troubleshooting.
 
-## Dependencies
+## Prerequisites
 
-*   `argparse`
-*   `os`
-*   `requests`
-*   `lxml`
-*   `delegator`
-*   `logging`
-*   `socket`
+* **Python 3:** Make sure you have Python 3 installed on your system.
+* **Required Libraries:** Install the necessary Python libraries using:
 
-## Environment Variables
+   ```bash
+   pip install requests lxml delegator
+   ```
 
-*   `WAZUH_USERNAME`
-*   `WAZUH_PASSWORD`
+* **Wazuh Credentials:** Set the following environment variables:
+  * `WAZUH_USERNAME`: Your Wazuh username.
+  * `WAZUH_PASSWORD`: Your Wazuh password.
+* **Root Privileges:** The script needs to be run with root privileges (e.g., using `sudo`).
 
 ## Usage
 
-1.  **Set Environment Variables:** Configure `WAZUH_USERNAME` and `WAZUH_PASSWORD` with your Wazuh credentials.
-2.  **Run the Script:** Execute the script from the command line, specifying the component to upgrade:
+1. **Clone the repository:**
 
-    ```bash
-    python wazuh_upgrade.py <component>
-    ```
+   ```bash
+   git clone <repository_url>
+   ```
 
-    Replace `<component>` with one of the following:
+2. **Navigate to the script directory:**
 
-    *   `indexer`
-    *   `manager`
-    *   `dashboard`
+   ```bash
+   cd <repository_directory>
+   ```
 
-## Example
+3. **Run the script:**
 
-```bash
-python wazuh_upgrade.py manager
+   ```bash
+   sudo python wazuh_upgrade.py 
+   ```
+
+## Important Notes
+
+* **Backup:** It's strongly recommended to back up your Wazuh configuration and data before running this script.
+* **Dependencies:** Be aware of potential dependencies between Wazuh components. The script currently upgrades all running components, but you might need to adjust the order of upgrades in some cases.
+* **Testing:** Thoroughly test this script in a non-production environment before using it in production.
+
+## Contributing
+
+Contributions are welcome! Please feel free to open issues or submit pull requests.
+
+## License
+
+This project is licensed under the MIT License. See the `LICENSE` file for details.
+
 ```
 
-## Important Considerations
+**Remember to replace the following placeholders:**
 
-*   **Wazuh Indexer Address:** The script assumes the Wazuh Indexer is listening on localhost. Adjust the `get_wazuh_indexer_address` function if your configuration is different.
-*   **Error Handling:** The script includes error handling and logging to assist in troubleshooting any issues during the upgrade process.
-*   **Backup:** It's strongly recommended to create a backup of your Wazuh configuration and data before performing any upgrades.
+* `<repository_url>`: The actual URL of your GitHub repository.
+* `<repository_directory>`: The name of the directory where you cloned the repository.
+* `wazuh_upgrade.py`: The actual name of your Python script file.
 
-## Remember
+You can further customize this README to include additional information about your script, such as:
 
-This script provides a basic framework for automating Wazuh component upgrades. You may need to customize it further to fit your specific environment and requirements. Please refer to the official Wazuh documentation for detailed upgrade instructions and best practices.
+* More detailed instructions on how to set up the Wazuh environment.
+* Troubleshooting tips.
+* Contact information or links to support resources.
 
-## Disclaimer
-
-Use this script at your own risk. The author and contributors are not responsible for any data loss, system instability, or other issues that may arise from using this script.
+Please let me know if you have any other questions.
