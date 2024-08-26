@@ -1,10 +1,10 @@
-import argparse
 import os
 import requests
 from lxml import html
 import delegator
 import logging
 import socket
+
 
 # Setup logging
 logging.basicConfig(
@@ -215,6 +215,26 @@ def upgrade_dashboard():
     run_command("systemctl start wazuh-dashboard")
 
 
+def get_running_components():
+    """
+    Identifies which Wazuh components are currently running on the system.
+
+    Returns:
+        list: List of running Wazuh components (e.g., ["indexer", "manager", "dashboard"]).
+    """
+    components = ["indexer", "manager", "dashboard"]
+    running_components = []
+
+    for component in components:
+        result = run_command(
+            f"systemctl is-active wazuh-{component}", ignore_errors=True
+        )
+        if result.return_code == 0:
+            running_components.append(component)
+
+    return running_components
+
+
 def main():
     """
     Main function to handle command-line arguments and perform the upgrade process.
@@ -227,15 +247,17 @@ def main():
         "manager": lambda: upgrade_manager(alerts_template, wazuh_module_filebeat),
     }
 
-    parser = argparse.ArgumentParser(description="Upgrade Wazuh components")
-    parser.add_argument(
-        "component", help="Component to upgrade", choices=function_map.keys()
-    )
-    args = parser.parse_args()
-
     try:
         setup_wazuh_repository()
-        function_map[args.component]()
+
+        # Identify running components and trigger updates
+        running_components = get_running_components()
+        logging.info(f"Running Wazuh components: {running_components}")
+
+        for component in running_components:
+            logging.info(f"Upgrading {component} component...")
+            function_map[component]()
+
     except Exception as e:
         logging.error(f"An error occurred during the upgrade process: {e}")
 
