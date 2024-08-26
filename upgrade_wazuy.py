@@ -7,7 +7,10 @@ import logging
 import socket
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 
 # Constants
 WAZUH_UPGRADE_URL = "https://documentation.wazuh.com/current/upgrade-guide/upgrading-central-components.html"
@@ -31,8 +34,12 @@ def fetch_upgrade_data(url):
         page = requests.get(url)
         page.raise_for_status()
         tree = html.fromstring(page.content)
-        alerts_template = tree.xpath('//*[@id="configuring-filebeat"]/ol/li[2]/div/div/pre/text()[4]')[0].strip()
-        wazuh_module_filebeat = tree.xpath('//*[@id="configuring-filebeat"]/ol/li[1]/div/div/pre/text()[3]')[0].strip()
+        alerts_template = tree.xpath(
+            '//*[@id="configuring-filebeat"]/ol/li[2]/div/div/pre/text()[4]'
+        )[0].strip()
+        wazuh_module_filebeat = tree.xpath(
+            '//*[@id="configuring-filebeat"]/ol/li[1]/div/div/pre/text()[3]'
+        )[0].strip()
         return alerts_template, wazuh_module_filebeat
     except requests.exceptions.RequestException as e:
         logging.error(f"Error fetching the page content: {e}")
@@ -131,7 +138,9 @@ def stop_indexer_services(wazuh_indexer_address):
         run_command(
             f"curl -X PUT '{wazuh_indexer_address}/_cluster/settings' -u {WAZUH_USERNAME}:{WAZUH_PASSWORD} -k -H 'Content-Type: application/json' -d'{{\"persistent\": {{\"cluster.routing.allocation.enable\": \"primaries\"}}}}'"
         )
-        run_command(f"curl -X POST '{wazuh_indexer_address}/_flush/synced' -u {WAZUH_USERNAME}:{WAZUH_PASSWORD} -k")
+        run_command(
+            f"curl -X POST '{wazuh_indexer_address}/_flush/synced' -u {WAZUH_USERNAME}:{WAZUH_PASSWORD} -k"
+        )
         logging.info("Stopping Wazuh Indexer service")
         run_command("systemctl stop wazuh-indexer")
         logging.info("Installing Wazuh Indexer update")
@@ -178,7 +187,9 @@ def upgrade_manager(alerts_template, wazuh_module_filebeat):
     logging.info("Updating Wazuh Manager")
     install_package("wazuh-manager")
     logging.info("Downloading Wazuh module for Filebeat")
-    run_command(f"curl -s {wazuh_module_filebeat} | sudo tar -xvz -C /usr/share/filebeat/module")
+    run_command(
+        f"curl -s {wazuh_module_filebeat} | sudo tar -xvz -C /usr/share/filebeat/module"
+    )
     logging.info("Downloading alerts template")
     run_command(f"curl -so /etc/filebeat/wazuh-template.json {alerts_template}")
     run_command("chmod go+r /etc/filebeat/wazuh-template.json")
@@ -217,7 +228,9 @@ def main():
     }
 
     parser = argparse.ArgumentParser(description="Upgrade Wazuh components")
-    parser.add_argument("component", help="Component to upgrade", choices=function_map.keys())
+    parser.add_argument(
+        "component", help="Component to upgrade", choices=function_map.keys()
+    )
     args = parser.parse_args()
 
     try:
