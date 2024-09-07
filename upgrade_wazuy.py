@@ -1,9 +1,11 @@
 import os
 import requests
 from lxml import html
-import delegator
+import importlib
+import sys
 import logging
 import socket
+import subprocess
 
 
 # Setup logging
@@ -11,12 +13,53 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-
 # Constants
 WAZUH_UPGRADE_URL = "https://documentation.wazuh.com/current/upgrade-guide/upgrading-central-components.html"
 SYSTEMCTL_DAEMON_RELOAD = "systemctl daemon-reload"
 WAZUH_USERNAME = os.getenv("WAZUH_USERNAME")
 WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
+
+
+def check_package(package_name):
+    """
+    Checks if a package is installed and attempts to install it if not present.
+
+    Args:
+        package_name (str): Name of the package to check/install.
+    """
+    try:
+        importlib.import_module(package_name)
+        logging.info(f"{package_name} is already installed.")
+    except ImportError:
+        logging.info(f"{package_name} not found. Installing...")
+        run_command(f"{sys.executable} -m pip install {package_name}")
+
+
+def run_command(command, ignore_errors=False):
+    """
+    Executes a system command and logs the output.
+
+    Args:
+        command (str): Command to execute.
+        ignore_errors (bool): Whether to ignore errors and continue execution.
+
+    Returns:
+        subprocess.CompletedProcess: Command result object.
+    """
+    logging.info(f"Executing command: {command}")
+    try:
+        result = subprocess.run(
+            command, shell=True, check=True, text=True, capture_output=True
+        )
+        if result.returncode != 0 and not ignore_errors:
+            logging.error(f"Command failed with error: {result.stderr}")
+            raise RuntimeError(result.stderr)
+        logging.info(f"Command output: {result.stdout}")
+        return result
+    except subprocess.CalledProcessError as e:
+        if not ignore_errors:
+            logging.error(f"Command failed with error: {e.stderr}")
+            raise
 
 
 def fetch_upgrade_data(url):
@@ -49,30 +92,6 @@ def fetch_upgrade_data(url):
         raise
 
 
-def run_command(command, ignore_errors=False):
-    """
-    Executes a system command and logs the output.
-
-    Args:
-        command (str): Command to execute.
-        ignore_errors (bool): Whether to ignore errors and continue execution.
-
-    Returns:
-        delegator.Command: Command result object.
-    """
-    logging.info(f"Executing command: {command}")
-    result = delegator.run(command)
-    if result.return_code != 0:
-        if ignore_errors:
-            logging.warning(f"Command failed but will be ignored: {result.err}")
-        else:
-            logging.error(f"Command failed with error: {result.err}")
-            raise RuntimeError(result.err)
-    else:
-        logging.info(f"Command output: {result.out}")
-    return result
-
-
 def install_package(package_name):
     """
     Installs a package using apt-get.
@@ -91,8 +110,6 @@ def get_wazuh_indexer_address():
     Returns:
         str: Wazuh Indexer listening address.
     """
-    # This function assumes that the Wazuh Indexer is listening on localhost for simplicity.
-    # Modify this function if Wazuh Indexer is configured to listen on a different interface.
     try:
         hostname = socket.gethostname()
         local_ip = socket.gethostbyname(hostname)
@@ -125,11 +142,6 @@ def stop_indexer_services(wazuh_indexer_address):
     Args:
         wazuh_indexer_address (str): Address of the Wazuh Indexer.
     """
-    if not WAZUH_USERNAME or not WAZUH_PASSWORD:
-        logging.error(
-            "WAZUH_USERNAME or WAZUH_PASSWORD environment variables are not set. Please set them and try again."
-        )
-        exit(1)
 
     try:
         run_command(
@@ -229,7 +241,7 @@ def get_running_components():
         result = run_command(
             f"systemctl is-active wazuh-{component}", ignore_errors=True
         )
-        if result.return_code == 0:
+        if result.returncode == 0:
             running_components.append(component)
 
     return running_components
@@ -239,6 +251,13 @@ def main():
     """
     Main function to handle command-line arguments and perform the upgrade process.
     """
+    # Check if the Wazuh credentials are set
+    if not WAZUH_USERNAME or not WAZUH_PASSWORD:
+        logging.error(
+            "WAZUH_USERNAME and WAZUH_PASSWORD environment variables must be set."
+        )
+        exit(1)
+
     alerts_template, wazuh_module_filebeat = fetch_upgrade_data(WAZUH_UPGRADE_URL)
 
     function_map = {
@@ -263,4 +282,9 @@ def main():
 
 
 if __name__ == "__main__":
+    # Check for required dependencies
+    check_package("delegator.py")
+    check_package("requests")
+    check_package("lxml")
+
     main()
