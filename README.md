@@ -57,19 +57,3 @@ Contributions are welcome! Please feel free to open issues or submit pull reques
 ## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
-
-```
-
-**Remember to replace the following placeholders:**
-
-* `<repository_url>`: The actual URL of your GitHub repository.
-* `<repository_directory>`: The name of the directory where you cloned the repository.
-* `wazuh_upgrade.py`: The actual name of your Python script file.
-
-You can further customize this README to include additional information about your script, such as:
-
-* More detailed instructions on how to set up the Wazuh environment.
-* Troubleshooting tips.
-* Contact information or links to support resources.
-
-Please let me know if you have any other questions.
