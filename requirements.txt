@@ -1,3 +1,2 @@
-delegator.py
-requests
-lxml
+lxml==5.3.0
+Requests==2.32.3

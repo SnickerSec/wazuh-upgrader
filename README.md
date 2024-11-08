@@ -1,59 +1,93 @@
-# Wazuh Component Updater
+# Wazuh Upgrade Automation Script
 
-This script automates the process of upgrading Wazuh components (Indexer, Manager, and Dashboard) on a system. It intelligently identifies which components are currently running and performs the necessary upgrades accordingly.
-
-## Features
-
-* **Automatic Upgrades:**  Upgrades all running Wazuh components without manual intervention.
-* **Intelligent Detection:**  Identifies the running components using `systemctl`.
-* **Wazuh Repository Setup:** Automatically sets up the Wazuh repository for package installation.
-* **Filebeat Configuration:**  Handles Filebeat configuration when upgrading the Wazuh Manager.
-* **Error Handling:**  Includes basic error handling and logging for troubleshooting.
+This script automates the upgrade of various Wazuh components, including the Wazuh Indexer, Manager, and Dashboard. It handles the setup of necessary repositories, stops services during upgrades, installs updates, and restarts services as needed.
 
 ## Prerequisites
 
-* **Python 3:** Make sure you have Python 3 installed on your system.
-* **Required Libraries:** Install the necessary Python libraries using:
+### Dependencies
 
-   ```bash
-   pip install requests lxml delegator
-   ```
+- The script requires the following Python libraries:
+  - `requests`
+  - `lxml`
+  - `dotenv`
+  
+You can install these dependencies using:
 
-* **Wazuh Credentials:** Set the following environment variables:
-  * `WAZUH_USERNAME`: Your Wazuh username.
-  * `WAZUH_PASSWORD`: Your Wazuh password.
-* **Root Privileges:** The script needs to be run with root privileges (e.g., using `sudo`).
+```bash
+pip install -r requirements.txt
+```
+
+### System Requirements
+
+- The script should be run on a system with `apt` as the package manager (e.g., Debian or Ubuntu).
+- Ensure `gnupg` and `apt-transport-https` are installed for repository management.
+  
+### Environment Variables
+
+The script requires Wazuh credentials to manage Wazuh Indexer configurations. Create a `.env` file in the root directory and include the following variables:
+
+```plaintext
+WAZUH_USERNAME=<your_wazuh_username>
+WAZUH_PASSWORD=<your_wazuh_password>
+```
 
 ## Usage
 
-1. **Clone the repository:**
+### Running the Script
 
-   ```bash
-   git clone <repository_url>
-   ```
+To run the script, execute:
 
-2. **Navigate to the script directory:**
+```bash
+python upgrade_wazuh.py
+```
 
-   ```bash
-   cd <repository_directory>
-   ```
+This will:
 
-3. **Run the script:**
+1. Set up the Wazuh repository.
+2. Identify running Wazuh components.
+3. Upgrade each component in sequence.
 
-   ```bash
-   sudo python wazuh_upgrade.py 
-   ```
+### Command-Line Arguments
 
-## Important Notes
+The script currently does not require additional arguments. However, components are automatically detected and upgraded if they are running.
 
-* **Backup:** It's strongly recommended to back up your Wazuh configuration and data before running this script.
-* **Dependencies:** Be aware of potential dependencies between Wazuh components. The script currently upgrades all running components, but you might need to adjust the order of upgrades in some cases.
-* **Testing:** Thoroughly test this script in a non-production environment before using it in production.
+## Features
 
-## Contributing
+- **Automatic Dependency Installation**: Checks for and installs missing packages (like `gnupg` and `apt-transport-https`).
+- **Automatic Service Detection**: Identifies active Wazuh components and only upgrades those that are running.
+- **Service Stop/Restart**: Safely stops services before upgrades and restarts them after completion.
+- **Retry Mechanism**: Commands are retried up to 3 times in case of transient failures.
 
-Contributions are welcome! Please feel free to open issues or submit pull requests.
+## Functions
+
+- `fetch_upgrade_data(url)`: Fetches URLs for alerts templates and Wazuh module for Filebeat from the Wazuh upgrade guide.
+- `run_command(command, ignore_errors=False, retries=3)`: Runs shell commands with optional retry capability.
+- `setup_wazuh_repository()`: Sets up the Wazuh repository and updates the package list.
+- `upgrade_indexer()`: Upgrades the Wazuh Indexer component.
+- `upgrade_manager(alerts_template, wazuh_module_filebeat)`: Upgrades the Wazuh Manager, including downloading and setting up the Filebeat configuration.
+- `upgrade_dashboard()`: Upgrades the Wazuh Dashboard.
+
+## Error Handling
+
+The script logs errors and retries certain operations to improve robustness. If a component fails to upgrade, a detailed error message is logged, and the script continues upgrading other components.
+
+## Logging
+
+The script logs all operations to the console. Logs include information about:
+
+- The status of each command.
+- Any errors encountered.
+- Wazuh components that are running and being upgraded.
+
+## Troubleshooting
+
+- **"WAZUH_USERNAME and WAZUH_PASSWORD environment variables must be set"**: Ensure the `.env` file is present in the script directory with valid credentials.
+- **Command Failure**: If a command fails after the maximum number of retries, check system permissions and network configurations, especially if upgrading Wazuh components requires network access.
 
 ## License
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+This project is licensed under the MIT License. See the LICENSE file for more details.
+
+## Author
+
+This script was developed by Chuck.

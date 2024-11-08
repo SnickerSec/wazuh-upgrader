@@ -1,12 +1,13 @@
 import os
 import requests
 from lxml import html
-import importlib
-import sys
 import logging
 import socket
 import subprocess
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
 
 # Setup logging
 logging.basicConfig(
@@ -20,46 +21,36 @@ WAZUH_USERNAME = os.getenv("WAZUH_USERNAME")
 WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
 
 
-def check_package(package_name):
+def run_command(command, ignore_errors=False, retries=3):
     """
-    Checks if a package is installed and attempts to install it if not present.
-
-    Args:
-        package_name (str): Name of the package to check/install.
-    """
-    try:
-        importlib.import_module(package_name)
-        logging.info(f"{package_name} is already installed.")
-    except ImportError:
-        logging.info(f"{package_name} not found. Installing...")
-        run_command(f"{sys.executable} -m pip install {package_name}")
-
-
-def run_command(command, ignore_errors=False):
-    """
-    Executes a system command and logs the output.
+    Executes a system command and logs the output. Retries in case of failure.
 
     Args:
         command (str): Command to execute.
         ignore_errors (bool): Whether to ignore errors and continue execution.
+        retries (int): Number of retries in case of failure.
 
     Returns:
         subprocess.CompletedProcess: Command result object.
     """
     logging.info(f"Executing command: {command}")
-    try:
-        result = subprocess.run(
-            command, shell=True, check=True, text=True, capture_output=True
-        )
-        if result.returncode != 0 and not ignore_errors:
-            logging.error(f"Command failed with error: {result.stderr}")
-            raise RuntimeError(result.stderr)
-        logging.info(f"Command output: {result.stdout}")
-        return result
-    except subprocess.CalledProcessError as e:
-        if not ignore_errors:
+    attempt = 0
+    while attempt < retries:
+        try:
+            result = subprocess.run(
+                command, shell=True, check=True, text=True, capture_output=True
+            )
+            logging.info(f"Command output: {result.stdout}")
+            return result
+        except subprocess.CalledProcessError as e:
             logging.error(f"Command failed with error: {e.stderr}")
-            raise
+            attempt += 1
+            if attempt >= retries and not ignore_errors:
+                raise RuntimeError(
+                    f"Command failed after {retries} attempts: {e.stderr}"
+                )
+            elif ignore_errors:
+                break
 
 
 def fetch_upgrade_data(url):
@@ -142,7 +133,6 @@ def stop_indexer_services(wazuh_indexer_address):
     Args:
         wazuh_indexer_address (str): Address of the Wazuh Indexer.
     """
-
     try:
         run_command(
             f"curl -X DELETE '{wazuh_indexer_address}/_index_template/ss4o_*_template' -u {WAZUH_USERNAME}:{WAZUH_PASSWORD} -k"
@@ -282,9 +272,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # Check for required dependencies
-    check_package("delegator.py")
-    check_package("requests")
-    check_package("lxml")
-
     main()
