@@ -4,7 +4,35 @@ from lxml import html
 import logging
 import socket
 import subprocess
+import time
+from typing import List, Optional
+from dataclasses import dataclass
+from functools import wraps
+import json
+from pathlib import Path
 from dotenv import load_dotenv
+
+
+# Custom exceptions and data classes
+class WazuhUpgradeError(Exception):
+    pass
+
+
+class ConfigurationError(WazuhUpgradeError):
+    pass
+
+
+class UpgradeFailedError(WazuhUpgradeError):
+    pass
+
+
+@dataclass
+class ComponentState:
+    version: str
+    config_files: List[str]
+    status: str
+    backup_path: Optional[str] = None
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,6 +47,127 @@ WAZUH_UPGRADE_URL = "https://documentation.wazuh.com/current/upgrade-guide/upgra
 SYSTEMCTL_DAEMON_RELOAD = "systemctl daemon-reload"
 WAZUH_USERNAME = os.getenv("WAZUH_USERNAME")
 WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
+BACKUP_DIR = Path("/var/backup/wazuh")
+CONFIG_PATHS = {
+    "indexer": "/etc/wazuh-indexer",
+    "manager": "/etc/wazuh-manager",
+    "dashboard": "/etc/wazuh-dashboard",
+}
+
+
+def retry_with_backoff(retries=3, backoff_in_seconds=1):
+    """Retry decorator with exponential backoff"""
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for i in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if i == retries - 1:
+                        raise
+                    wait_time = backoff_in_seconds * 2**i
+                    logging.warning(
+                        f"Attempt {i+1} failed: {str(e)}. Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+            return None
+
+        return wrapper
+
+    return decorator
+
+
+def validate_environment() -> None:
+    """Validate environment and dependencies"""
+    required_commands = ["curl", "apt-get", "systemctl", "tar"]
+    for cmd in required_commands:
+        if not subprocess.run(["which", cmd], capture_output=True).returncode == 0:
+            raise ConfigurationError(f"Required command '{cmd}' not found")
+
+    if not all([WAZUH_USERNAME, WAZUH_PASSWORD]):
+        raise ConfigurationError("Missing required environment variables")
+
+
+def backup_component(component: str) -> str:
+    """Create backup of component with state information"""
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    backup_path = BACKUP_DIR / component / timestamp
+    backup_path.mkdir(parents=True, exist_ok=True)
+
+    # Backup configuration
+    config_path = Path(CONFIG_PATHS[component])
+    if config_path.exists():
+        run_command(f"cp -r {config_path}/* {backup_path}/")
+
+    # Save component state
+    state = ComponentState(
+        version=get_current_version(component),
+        config_files=[str(p) for p in config_path.rglob("*") if p.is_file()],
+        status=get_component_status(component),
+        backup_path=str(backup_path),
+    )
+
+    with open(backup_path / "state.json", "w") as f:
+        json.dump(state.__dict__, f)
+
+    return str(backup_path)
+
+
+def restore_component(component: str, backup_path: str) -> None:
+    """Restore component from backup"""
+    backup_path = Path(backup_path)
+    if not backup_path.exists():
+        raise WazuhUpgradeError(f"Backup path {backup_path} not found")
+
+    with open(backup_path / "state.json") as f:
+        state = ComponentState(**json.load(f))
+
+    # Stop component
+    run_command(f"systemctl stop wazuh-{component}", ignore_errors=True)
+
+    # Restore configuration
+    config_path = Path(CONFIG_PATHS[component])
+    run_command(f"rm -rf {config_path}/*")
+    run_command(f"cp -r {backup_path}/* {config_path}/")
+
+    # Reinstall previous version if available
+    if state.version != "unknown":
+        run_command(f"apt-get install -y wazuh-{component}={state.version}")
+
+    # Restart component
+    run_command(f"systemctl restart wazuh-{component}")
+
+
+@retry_with_backoff(retries=3)
+def get_component_status(component: str) -> str:
+    """Get detailed component status"""
+    try:
+        result = run_command(f"systemctl status wazuh-{component}", ignore_errors=True)
+        return "active" if result and result.returncode == 0 else "inactive"
+    except Exception:
+        return "unknown"
+
+
+def check_component_health(component: str) -> bool:
+    """Check if a component is healthy after upgrade"""
+    status = get_component_status(component)
+    return status == "active"
+
+
+def get_current_version(component: str) -> str:
+    """Get current version of a Wazuh component"""
+    try:
+        result = run_command(
+            f"apt-cache policy wazuh-{component} | grep Installed", ignore_errors=True
+        )
+        if result and result.returncode == 0:
+            version = result.stdout.split()[1]
+            return version if version != "(none)" else "unknown"
+        return "unknown"
+    except Exception:
+        return "unknown"
 
 
 def run_command(command, ignore_errors=False, retries=3):
@@ -237,38 +386,59 @@ def get_running_components():
     return running_components
 
 
-def main():
-    """
-    Main function to handle command-line arguments and perform the upgrade process.
-    """
-    # Check if the Wazuh credentials are set
-    if not WAZUH_USERNAME or not WAZUH_PASSWORD:
-        logging.error(
-            "WAZUH_USERNAME and WAZUH_PASSWORD environment variables must be set."
-        )
-        exit(1)
-
-    alerts_template, wazuh_module_filebeat = fetch_upgrade_data(WAZUH_UPGRADE_URL)
-
-    function_map = {
-        "indexer": upgrade_indexer,
-        "dashboard": upgrade_dashboard,
-        "manager": lambda: upgrade_manager(alerts_template, wazuh_module_filebeat),
-    }
-
+def upgrade_component_safe(component: str, *args) -> None:
+    """Safely upgrade a component with rollback capability"""
+    backup_path = backup_component(component)
     try:
-        setup_wazuh_repository()
+        if component == "indexer":
+            upgrade_indexer()
+        elif component == "manager":
+            upgrade_manager(*args)
+        elif component == "dashboard":
+            upgrade_dashboard()
 
-        # Identify running components and trigger updates
-        running_components = get_running_components()
-        logging.info(f"Running Wazuh components: {running_components}")
-
-        for component in running_components:
-            logging.info(f"Upgrading {component} component...")
-            function_map[component]()
+        # Verify upgrade success
+        if not check_component_health(component):
+            raise UpgradeFailedError(f"{component} health check failed")
 
     except Exception as e:
-        logging.error(f"An error occurred during the upgrade process: {e}")
+        logging.error(f"Upgrade failed for {component}: {str(e)}")
+        logging.info(f"Rolling back {component}...")
+        restore_component(component, backup_path)
+        raise
+
+
+def main():
+    """
+    Enhanced main function with proper validation and error handling
+    """
+    try:
+        validate_environment()
+
+        alerts_template, wazuh_module_filebeat = fetch_upgrade_data(WAZUH_UPGRADE_URL)
+        setup_wazuh_repository()
+
+        # Enforce upgrade order
+        components = ["indexer", "manager", "dashboard"]
+        running_components = get_running_components()
+
+        for component in components:
+            if component in running_components:
+                logging.info(f"Upgrading {component}...")
+                upgrade_component_safe(
+                    component,
+                    alerts_template if component == "manager" else None,
+                    wazuh_module_filebeat if component == "manager" else None,
+                )
+
+    except WazuhUpgradeError as e:
+        logging.error(f"Upgrade failed: {str(e)}")
+        exit(1)
+    except Exception as e:
+        logging.error(f"Unexpected error: {str(e)}")
+        exit(1)
+    else:
+        logging.info("Upgrade completed successfully")
 
 
 if __name__ == "__main__":
