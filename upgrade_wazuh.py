@@ -12,6 +12,19 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 
+def sanitize_command(command: str) -> str:
+    """
+    Redacts sensitive information (e.g., passwords) from a command string.
+
+    Args:
+        command (str): The command string to sanitize.
+
+    Returns:
+        str: The sanitized command string with sensitive information redacted.
+    """
+    if WAZUH_PASSWORD:
+        command = command.replace(WAZUH_PASSWORD, "[REDACTED]")
+    return command
 
 # Custom exceptions and data classes
 class WazuhUpgradeError(Exception):
@@ -182,7 +195,7 @@ def run_command(command, ignore_errors=False, retries=3):
     Returns:
         subprocess.CompletedProcess: Command result object.
     """
-    logging.info(f"Executing command: {command}")
+    logging.info(f"Executing command: {sanitize_command(command)}")
     attempt = 0
     while attempt < retries:
         try:
