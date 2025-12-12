@@ -24,6 +24,9 @@ def sanitize_command(command: str) -> str:
     """
     if WAZUH_PASSWORD:
         command = command.replace(WAZUH_PASSWORD, "[REDACTED]")
+    # Additional safeguard: Check if sensitive data is still present
+    if WAZUH_PASSWORD in command:
+        raise ValueError("Sanitization failed: Sensitive data detected in command.")
     return command
 
 # Custom exceptions and data classes
@@ -195,7 +198,12 @@ def run_command(command, ignore_errors=False, retries=3):
     Returns:
         subprocess.CompletedProcess: Command result object.
     """
-    logging.info(f"Executing command: {sanitize_command(command)}")
+    try:
+        sanitized_command = sanitize_command(command)
+        logging.info(f"Executing command: {sanitized_command}")
+    except ValueError as e:
+        logging.error(f"Failed to sanitize command: {e}")
+        raise
     attempt = 0
     while attempt < retries:
         try:
