@@ -200,7 +200,10 @@ def run_command(command, ignore_errors=False, retries=3):
     """
     try:
         sanitized_command = sanitize_command(command)
-        logging.info(f"Executing command: {sanitized_command}")
+        if WAZUH_PASSWORD and WAZUH_PASSWORD in command:
+            logging.info("Executing sensitive command: [command details redacted]")
+        else:
+            logging.info(f"Executing command: {sanitized_command}")
     except ValueError as e:
         logging.error(f"Failed to sanitize command: {e}")
         raise
