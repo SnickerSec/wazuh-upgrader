@@ -207,11 +207,13 @@ def run_command(command, ignore_errors=False, retries=3):
         subprocess.CompletedProcess: Command result object.
     """
     # Log the command in a sanitized form only
-    sanitized_command = sanitize_command(command)
-    # If we still detect a password in the original command, avoid logging details
-    if WAZUH_PASSWORD and isinstance(command, str) and WAZUH_PASSWORD in command:
+    # If we detect credentials in the original command, avoid logging details entirely
+    has_password = WAZUH_PASSWORD and isinstance(command, str) and WAZUH_PASSWORD in command
+    has_username = WAZUH_USERNAME and isinstance(command, str) and WAZUH_USERNAME in command
+    if has_password or has_username:
         logging.info("Executing sensitive command: [command details redacted]")
     else:
+        sanitized_command = sanitize_command(command)
         logging.info(f"Executing command: {sanitized_command}")
 
     attempt = 0
