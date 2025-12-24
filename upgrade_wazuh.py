@@ -232,18 +232,24 @@ def run_command(command, ignore_errors=False, retries=3):
             result = subprocess.run(
                 command, shell=True, check=True, text=True, capture_output=True
             )
-            # Sanitize stdout before logging in case it contains sensitive data
-            sanitized_stdout = sanitize_command(result.stdout)
-            logging.info(f"Command output: {sanitized_stdout}")
+            # Don't log output from commands that contain credentials
+            if not (has_password or has_username):
+                sanitized_stdout = sanitize_command(result.stdout)
+                logging.info(f"Command output: {sanitized_stdout}")
             return result
         except subprocess.CalledProcessError as e:
-            # Sanitize stderr before logging in case it contains sensitive data
-            sanitized_stderr = sanitize_command(e.stderr)
-            logging.error(f"Command failed with error: {sanitized_stderr}")
+            # Don't log error output from commands that contain credentials
+            if has_password or has_username:
+                logging.error("Command failed with error: [output redacted]")
+                error_msg = "[output redacted]"
+            else:
+                sanitized_stderr = sanitize_command(e.stderr)
+                logging.error(f"Command failed with error: {sanitized_stderr}")
+                error_msg = sanitized_stderr
             attempt += 1
             if attempt >= retries and not ignore_errors:
                 raise RuntimeError(
-                    f"Command failed after {retries} attempts: {sanitized_stderr}"
+                    f"Command failed after {retries} attempts: {error_msg}"
                 )
             elif ignore_errors:
                 break
