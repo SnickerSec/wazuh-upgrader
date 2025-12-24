@@ -40,6 +40,16 @@ def sanitize_command(command: Optional[str]) -> str:
     """
     if command is None:
         return ""
+    # If the command contains explicitly sensitive values, avoid returning it at all.
+    # This prevents accidental clear-text logging of passwords or other secrets.
+    if isinstance(command, str):
+        if WAZUH_PASSWORD and WAZUH_PASSWORD in command:
+            return "[REDACTED SENSITIVE COMMAND]"
+        if WAZUH_USERNAME and WAZUH_USERNAME in command:
+            # Usernames are less sensitive than passwords but may still be considered
+            # confidential in some environments, so we redact the whole command.
+            return "[REDACTED SENSITIVE COMMAND]"
+
     sanitized = command
     # List of sensitive values to redact from logs
     secrets = []
@@ -47,7 +57,7 @@ def sanitize_command(command: Optional[str]) -> str:
         secrets.append(WAZUH_PASSWORD)
     # Add other secrets here if needed in future
     for secret in secrets:
-        if secret:
+        if secret and isinstance(sanitized, str):
             sanitized = sanitized.replace(secret, "[REDACTED]")
     return sanitized
 
