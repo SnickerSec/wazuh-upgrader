@@ -12,7 +12,23 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 
-def sanitize_command(command: str) -> str:
+# Load environment variables from .env file
+load_dotenv()
+
+# Constants
+WAZUH_UPGRADE_URL = "https://documentation.wazuh.com/current/upgrade-guide/upgrading-central-components.html"
+SYSTEMCTL_DAEMON_RELOAD = "systemctl daemon-reload"
+WAZUH_USERNAME = os.getenv("WAZUH_USERNAME")
+WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
+BACKUP_DIR = Path("/var/backup/wazuh")
+CONFIG_PATHS = {
+    "indexer": "/etc/wazuh-indexer",
+    "manager": "/etc/wazuh-manager",
+    "dashboard": "/etc/wazuh-dashboard",
+}
+
+
+def sanitize_command(command: Optional[str]) -> str:
     """
     Redacts sensitive information (e.g., passwords) from a command string.
 
@@ -22,12 +38,19 @@ def sanitize_command(command: str) -> str:
     Returns:
         str: The sanitized command string with sensitive information redacted.
     """
+    if command is None:
+        return ""
+    sanitized = command
+    # List of sensitive values to redact from logs
+    secrets = []
     if WAZUH_PASSWORD:
-        command = command.replace(WAZUH_PASSWORD, "[REDACTED]")
-    # Additional safeguard: Check if sensitive data is still present
-    if WAZUH_PASSWORD in command:
-        raise ValueError("Sanitization failed: Sensitive data detected in command.")
-    return command
+        secrets.append(WAZUH_PASSWORD)
+    # Add other secrets here if needed in future
+    for secret in secrets:
+        if secret:
+            sanitized = sanitized.replace(secret, "[REDACTED]")
+    return sanitized
+
 
 # Custom exceptions and data classes
 class WazuhUpgradeError(Exception):
@@ -50,25 +73,10 @@ class ComponentState:
     backup_path: Optional[str] = None
 
 
-# Load environment variables from .env file
-load_dotenv()
-
 # Setup logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-
-# Constants
-WAZUH_UPGRADE_URL = "https://documentation.wazuh.com/current/upgrade-guide/upgrading-central-components.html"
-SYSTEMCTL_DAEMON_RELOAD = "systemctl daemon-reload"
-WAZUH_USERNAME = os.getenv("WAZUH_USERNAME")
-WAZUH_PASSWORD = os.getenv("WAZUH_PASSWORD")
-BACKUP_DIR = Path("/var/backup/wazuh")
-CONFIG_PATHS = {
-    "indexer": "/etc/wazuh-indexer",
-    "manager": "/etc/wazuh-manager",
-    "dashboard": "/etc/wazuh-dashboard",
-}
 
 
 def retry_with_backoff(retries=3, backoff_in_seconds=1):
@@ -198,29 +206,32 @@ def run_command(command, ignore_errors=False, retries=3):
     Returns:
         subprocess.CompletedProcess: Command result object.
     """
-    try:
-        sanitized_command = sanitize_command(command)
-        if WAZUH_PASSWORD and WAZUH_PASSWORD in command:
-            logging.info("Executing sensitive command: [command details redacted]")
-        else:
-            logging.info(f"Executing command: {sanitized_command}")
-    except ValueError as e:
-        logging.error(f"Failed to sanitize command: {e}")
-        raise
+    # Log the command in a sanitized form only
+    sanitized_command = sanitize_command(command)
+    # If we still detect a password in the original command, avoid logging details
+    if WAZUH_PASSWORD and isinstance(command, str) and WAZUH_PASSWORD in command:
+        logging.info("Executing sensitive command: [command details redacted]")
+    else:
+        logging.info(f"Executing command: {sanitized_command}")
+
     attempt = 0
     while attempt < retries:
         try:
             result = subprocess.run(
                 command, shell=True, check=True, text=True, capture_output=True
             )
-            logging.info(f"Command output: {result.stdout}")
+            # Sanitize stdout before logging in case it contains sensitive data
+            sanitized_stdout = sanitize_command(result.stdout)
+            logging.info(f"Command output: {sanitized_stdout}")
             return result
         except subprocess.CalledProcessError as e:
-            logging.error(f"Command failed with error: {e.stderr}")
+            # Sanitize stderr before logging in case it contains sensitive data
+            sanitized_stderr = sanitize_command(e.stderr)
+            logging.error(f"Command failed with error: {sanitized_stderr}")
             attempt += 1
             if attempt >= retries and not ignore_errors:
                 raise RuntimeError(
-                    f"Command failed after {retries} attempts: {e.stderr}"
+                    f"Command failed after {retries} attempts: {sanitized_stderr}"
                 )
             elif ignore_errors:
                 break
