@@ -11,6 +11,7 @@ from functools import wraps
 import json
 from pathlib import Path
 from dotenv import load_dotenv
+import re
 
 # Load environment variables from .env file
 load_dotenv()
@@ -40,25 +41,47 @@ def sanitize_command(command: Optional[str]) -> str:
     """
     if command is None:
         return ""
-    # If the command contains explicitly sensitive values, avoid returning it at all.
-    # This prevents accidental clear-text logging of passwords or other secrets.
-    if isinstance(command, str):
-        if WAZUH_PASSWORD and WAZUH_PASSWORD in command:
-            return "[REDACTED SENSITIVE COMMAND]"
-        if WAZUH_USERNAME and WAZUH_USERNAME in command:
-            # Usernames are less sensitive than passwords but may still be considered
-            # confidential in some environments, so we redact the whole command.
-            return "[REDACTED SENSITIVE COMMAND]"
+
+    if not isinstance(command, str):
+        return str(command)
 
     sanitized = command
-    # List of sensitive values to redact from logs
+
+    # Structurally redact common credential-bearing flags used in commands (e.g. curl):
+    #   -u username:password
+    #   --user username:password
+    # The goal is to ensure that even if a secret value is not explicitly known here,
+    # it will not appear in logs when passed via these flags.
+    sanitized = re.sub(
+        r"(-u\s+)(\S+?:)(\S+)",
+        r"\1\2[REDACTED]",
+        sanitized,
+    )
+    sanitized = re.sub(
+        r"(--user\s+)(\S+?:)(\S+)",
+        r"\1\2[REDACTED]",
+        sanitized,
+    )
+
+    # If the command contains explicitly sensitive values, avoid returning it at all.
+    # This prevents accidental clear-text logging of passwords or other secrets that
+    # may not be covered by the structural redaction above.
+    if WAZUH_PASSWORD and WAZUH_PASSWORD in sanitized:
+        return "[REDACTED SENSITIVE COMMAND]"
+    if WAZUH_USERNAME and WAZUH_USERNAME in sanitized:
+        # Usernames are less sensitive than passwords but may still be considered
+        # confidential in some environments, so we redact the whole command.
+        return "[REDACTED SENSITIVE COMMAND]"
+
+    # List of sensitive values to redact from logs by exact value
     secrets = []
     if WAZUH_PASSWORD:
         secrets.append(WAZUH_PASSWORD)
     # Add other secrets here if needed in future
     for secret in secrets:
-        if secret and isinstance(sanitized, str):
+        if secret:
             sanitized = sanitized.replace(secret, "[REDACTED]")
+
     return sanitized
 
 
@@ -216,8 +239,10 @@ def run_command(command, ignore_errors=False, retries=3):
     Returns:
         subprocess.CompletedProcess: Command result object.
     """
-    # Log the command in a sanitized form only
-    # If we detect credentials in the original command, avoid logging details entirely
+    # Determine whether the raw command string appears to contain credentials.
+
+    # Always use the sanitizer before logging any command text.
+        # For commands that contain explicit credentials, avoid logging details entirely.
     has_password = WAZUH_PASSWORD and isinstance(command, str) and WAZUH_PASSWORD in command
     has_username = WAZUH_USERNAME and isinstance(command, str) and WAZUH_USERNAME in command
     if has_password or has_username:
